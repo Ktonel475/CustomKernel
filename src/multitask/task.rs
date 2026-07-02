@@ -1,4 +1,4 @@
-use crate::memory::pmm::{alloc_page, free_page, PAGE_SIZE};
+use crate::memory::pmm::{PAGE_SIZE, alloc_page, free_page};
 use crate::multitask::spinlock::Spinlock;
 
 pub const MAX_TASKS: usize = 32;
@@ -10,7 +10,7 @@ pub const KERNEL_SS: u64 = 0x30;
 
 const INITIAL_RFLAGS: u64 = 0x202;
 
-#[derive(Debug, Clone, Copy, PartialEQ, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TaskState {
     Empty,
@@ -24,11 +24,11 @@ pub enum TaskState {
 #[repr(C)]
 pub struct Task {
     pub rsp: usize,
-    
+
     pub state: TaskState,
     pub pid: u32,
     pub name: [u8; 16],
-    
+
     pub stack_base: usize,
     pub stack_top: usize,
 
@@ -58,19 +58,21 @@ impl Task {
 
 pub static TASK_LOCK: Spinlock = Spinlock::new();
 static mut TASKS: [Task; MAX_TASKS] = {
-    const T: Task::empty();
+    const T: Task = Task::empty();
     [T; MAX_TASKS]
 };
 static mut NEXT_PID: u32 = 1;
 pub static mut CURRENT: usize = 0;
 
 fn alloc_pid() -> u32 {
-    let p = NEXT_PID;
-    NEXT_PID += 1;
-    p
+    unsafe {
+        let p = NEXT_PID;
+        NEXT_PID += 1;
+        p
+    }
 }
 
-fn alloc_slot() -> Optio<usize> {
+fn alloc_slot() -> Option<usize> {
     unsafe {
         for i in 0..MAX_TASKS {
             if (*(&raw const TASKS))[i].state == TaskState::Empty {
@@ -81,36 +83,40 @@ fn alloc_slot() -> Optio<usize> {
     None
 }
 
-fn setup_inital_stack(stack_top: usize, entry: usize) -> usize{
+const FRAME_WORDS: usize = 22;
+
+fn setup_inital_stack(stack_top: usize, entry: usize) -> usize {
     let frame_start = stack_top - FRAME_WORDS * 8;
     let frame = frame_start as *mut u64;
 
-    for in 0..FRAME_WORDS {
-        frame.add(i).write(0);
-    }
+    unsafe {
+        for i in 0..FRAME_WORDS {
+            frame.add(i).write(0);
+        }
 
-    frame.add(0).write(0);
-    frame.add(1).write(0);
-    frame.add(2).write(0);
-    frame.add(3).write(0);
-    frame.add(4).write(0);
-    frame.add(5).write(0);
-    frame.add(6).write(0);
-    frame.add(7).write(0);
-    frame.add(8).write(0);
-    frame.add(9).write(0);
-    frame.add(10).write(0);
-    frame.add(11).write(0);
-    frame.add(12).write(0);
-    frame.add(13).write(0);
-    frame.add(14).write(0);
-    frame.add(15).write(0);
-    frame.add(16).write(0);
-    frame.add(17).write(entry as u64);
-    frame.add(18).write(KERNEL_CS);
-    frame.add(19).write(INITIAL_RFLAGS);
-    frame.add(20).write(stack_top as u64);
-    frame.add(21).write(KERNEL_SS);
+        frame.add(0).write(0);
+        frame.add(1).write(0);
+        frame.add(2).write(0);
+        frame.add(3).write(0);
+        frame.add(4).write(0);
+        frame.add(5).write(0);
+        frame.add(6).write(0);
+        frame.add(7).write(0);
+        frame.add(8).write(0);
+        frame.add(9).write(0);
+        frame.add(10).write(0);
+        frame.add(11).write(0);
+        frame.add(12).write(0);
+        frame.add(13).write(0);
+        frame.add(14).write(0);
+        frame.add(15).write(0);
+        frame.add(16).write(0);
+        frame.add(17).write(entry as u64);
+        frame.add(18).write(KERNEL_CS);
+        frame.add(19).write(INITIAL_RFLAGS);
+        frame.add(20).write(stack_top as u64);
+        frame.add(21).write(KERNEL_SS);
+    }
 
     frame_start
 }
@@ -118,20 +124,25 @@ fn setup_inital_stack(stack_top: usize, entry: usize) -> usize{
 pub fn new_kernel_task(name: &[u8], entry: fn()) -> Option<u32> {
     let slot = alloc_slot()?;
 
-    let phys0 = alloc_page().or_else(|| { free_page(phys0); None})?;
+    let phys0 = alloc_page()?;
+    let phys1 = alloc_page().or_else(|| {
+        free_page(phys0);
+        None
+    })?;
 
     let hhdm = crate::memory::vmm::hhdm_offset() as usize;
     let stack_base = phys0;
-    let stack_vitr_base = phys0 + hhdm;
+    let _stack_vitr_base = phys0 + hhdm;
     let stack_virt_top = phys1 + PAGE_SIZE + hhdm;
 
     let pid = alloc_pid();
 
     let rsp = setup_inital_stack(stack_virt_top, entry as usize);
 
-    let task = &mut (*(&raw mut TASKS))[slots];
+    let task = unsafe { &mut (*(&raw mut TASKS))[slot] };
 
     task.rsp = rsp;
+    task.pid = pid;
     task.state = TaskState::Ready;
     task.stack_base = stack_base;
     task.stack_top = stack_virt_top;
@@ -143,40 +154,40 @@ pub fn new_kernel_task(name: &[u8], entry: fn()) -> Option<u32> {
     let copy_len = name.len().min(15);
     task.name[..copy_len].copy_from_slice(&name[..copy_len]);
     task.name[copy_len] = 0;
-    
-    crate::device::serial::print("[task] created");
-    for &b in &task.name[..copy_len] { crate::device::serial::putc(b); }
+
+    core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+    crate::device::serial::print("[task] created '");
+    for &b in &task.name[..copy_len] {
+        crate::device::serial::putc(b);
+    }
     crate::device::serial::print("' pid=");
     crate::device::serial::print_usize(pid as usize);
     crate::device::serial::print(" slot=");
     crate::device::serial::print_usize(slot);
     crate::device::serial::print("\n");
+
+    Some(pid)
 }
 
 pub fn get_task(slot: usize) -> *mut Task {
-    unsafe {
-        &raw mut (*(&raw mut)[slot])
-    }
+    unsafe { &raw mut (*(&raw mut TASKS))[slot] }
 }
 
-pub fn current_task() -> *mut task {
-    unsafe {
-        get_task(CURRENT)
-    }
+pub fn current_task() -> *mut Task {
+    unsafe { get_task(CURRENT) }
 }
 
 pub fn current_pid() -> u32 {
-    unsafe {
-        (*current_task()).pid
-    }
+    unsafe { (*current_task()).pid }
 }
 
 pub fn find_pid(pid: u32) -> Option<usize> {
     unsafe {
         for i in 0..MAX_TASKS {
-            let t = &(8(&raw const TASKS))[i];
+            let t = &(*(&raw const TASKS))[i];
             if t.state != TaskState::Empty && t.pid == pid {
-                return Some(i)
+                return Some(i);
             }
         }
     }
@@ -192,10 +203,12 @@ pub fn block_until(slot: usize, wake_tick: u64) {
 }
 
 pub fn wake_sleeping_tasks(current_tick: u64) {
-    unsafe {
-        for i in 0..MAX_TASKS {
-            let t = &mut (*(&raw mut TASKs))[i];
-            if t.state == TaskState::Blocked && t.sleep_until != 0 && t.sleep_until <=current_tick {
+    for i in 0..MAX_TASKS {
+        let tasks = &raw mut TASKS;
+        unsafe {
+            let t = &mut (*tasks)[i];
+            if t.state == TaskState::Blocked && t.sleep_until != 0 && t.sleep_until <= current_tick
+            {
                 t.state = TaskState::Ready;
                 t.sleep_until = 0;
                 crate::device::serial::print("[task] woke pid");
@@ -237,9 +250,34 @@ pub fn dump_tasks() {
     use crate::device::serial;
     serial::print("\n--- Task Table ---\n");
     unsafe {
-        for in 0..MAX_TASKS {
-            let t = & (*(&raw mut TASKS))[i];
-            if t.state == TaskState::Empty { continue ; }
+        for i in 0..MAX_TASKS {
+            let t = &(*(&raw mut TASKS))[i];
+            let state = core::ptr::read_volatile(&t.state);
+            if state == TaskState::Empty {
+                continue;
+            }
+            serial::print(" [");
+            serial::print_usize(i);
+            serial::print("] pid=");
+            serial::print_usize(t.pid as usize);
+            serial::print(" state=");
+            serial::print(match state {
+                TaskState::Empty => "empty",
+                TaskState::Created => "created",
+                TaskState::Ready => "ready",
+                TaskState::Running => "running",
+                TaskState::Blocked => "blocked",
+                TaskState::Terminated => "terminated",
+            });
+            serial::print(" ticks=");
+            serial::print_usize(t.ticks_run as usize);
+            serial::print(" name=");
+            let namelen = t.name.iter().position(|&b| b == 0).unwrap_or(16);
+            for &b in &t.name[..namelen] {
+                serial::putc(b);
+            }
+            serial::print("\n");
         }
     }
+    serial::print("----------------------\n");
 }

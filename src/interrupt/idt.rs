@@ -1,4 +1,4 @@
-use crate::vmm::read_cr2;
+use crate::memory::vmm::read_cr2;
 use core::arch::naked_asm;
 use paste::paste;
 use seq_macro::seq;
@@ -214,6 +214,7 @@ extern "C" fn common_handler(frame: *mut InterruptFrame) {
         15 | 22..=27 | 31 => exception_generic("Reserved", frame),
 
         32..=47 => {
+            crate::device::serial::print("I");
             let irq = (frame.vector - 32) as u8;
 
             unsafe {
@@ -415,7 +416,6 @@ pub fn init_idt() {
         core::arch::asm!(
             "lidt [{idtr}]",
             idtr = in(reg) &idtr as *const Idtr,
-            options(nostack)
         );
     }
 }

@@ -118,8 +118,8 @@ impl Shell {
 
             // ── Memory commands ──────────────────────────────────────────────
             b"meminfo" => {
-                let free = crate::pmm::get_free_page_count();
-                let total = crate::pmm::get_total_page_count();
+                let free = crate::memory::pmm::get_free_page_count();
+                let total = crate::memory::pmm::get_total_page_count();
                 let used = total - free;
                 term.print("PMM status:\n");
                 term.print("  Free  pages : ");
@@ -143,10 +143,10 @@ impl Shell {
                 term.print("Running heap allocator test...\n");
 
                 // Allocate a variety of sizes.
-                let a = crate::heap::kmalloc(64);
-                let b = crate::heap::kmalloc(128);
-                let c = crate::heap::kmalloc(1024);
-                let d = crate::heap::kmalloc(37);
+                let a = crate::memory::heap::kmalloc(64);
+                let b = crate::memory::heap::kmalloc(128);
+                let c = crate::memory::heap::kmalloc(1024);
+                let d = crate::memory::heap::kmalloc(37);
 
                 // Write known patterns to verify no overlap.
                 unsafe {
@@ -214,8 +214,6 @@ impl Shell {
 
             b"pgfault" => {
                 term.print("Triggering page fault at 0xdeadbeef...\n");
-                // Read from a completely unmapped address. idt.rs's
-                // exception_page_fault will print CR2 + error code and halt.
                 unsafe {
                     let bad_ptr = 0xdeadbeefu64 as *const u64;
                     let _ = bad_ptr.read_volatile();
@@ -228,7 +226,7 @@ impl Shell {
                     let zero: u64;
                     core::arch::asm!("xor edx, edx", out("edx") zero, options(nomem, nostack));
                     let a = 10u64;
-                    let _ = a / zero; // compiler can't const-fold a runtime zero
+                    let _ = a / zero;
                 }
             }
 
@@ -249,19 +247,14 @@ impl Shell {
 
             b"dfault" => {
                 term.print("Triggering double fault (recursive stack overflow)...\n");
-                // Deliberately blow the stack: an unbounded recursive call
-                // with no tail-call optimisation (volatile read prevents it)
-                // eventually faults on the guard page, and since we have no
-                // IST-backed stack for #DF yet, the second fault during
-                // fault-delivery escalates to a genuine double fault.
                 unsafe {
                     core::arch::asm!("call {f}", f = sym recurse_forever);
                 }
             }
 
             b"uptime" => {
-                let ticks = crate::pit::ticks();
-                let secs = ticks / crate::pit::TICKS_PER_SECOND as u64;
+                let ticks = crate::interrupt::pit::ticks();
+                let secs = ticks / crate::interrupt::pit::TICKS_PER_SECOND as u64;
                 term.print("Uptime: ");
                 print_usize(term, secs as usize);
                 term.print("s (");
@@ -275,14 +268,14 @@ impl Shell {
                 term.print("Sleeping ");
                 print_usize(term, secs as usize);
                 term.print("s...\n");
-                crate::pit::sleep_ms(secs * 1000);
+                crate::multitask::scheduler::sleep_ms(secs * 1000);
                 term.print("Awake.\n");
             }
 
             b"synwrite" => {
                 let text = trim_ascii(rest);
                 term.print("via syscall: ");
-                syscall::sys_write_wrapper(1, text.as_ptr(), text.len());
+                crate::interrupt::syscall::sys_write_wrapper(1, text.as_ptr(), text.len());
                 term.putc('\n');
             }
 
@@ -297,9 +290,7 @@ impl Shell {
     }
 }
 
-// ── Main shell loop (polling) ─────────────────────────────────────────────────
-
-pub fn run_shell() -> ! {
+pub fn run_shell() {
     let mut term = Terminal::new().expect("framebuffer must exist");
     let mut shell = Shell::new();
 
@@ -307,23 +298,10 @@ pub fn run_shell() -> ! {
     shell.show_prompt(&mut term);
 
     loop {
-        // Drain every key currently in the ring buffer.
-        while let Some(key) = crate::keyboard::global_pop() {
+        while let Some(key) = crate::device::keyboard::global_pop() {
             shell.handle_key(&mut term, key);
         }
-        // spin_loop() emits a PAUSE instruction — tells the CPU we're in
-        // a polling loop, which prevents memory-order issues on x86 and
-        // gives the CPU a hint to reduce pipeline pressure.
-        //
-        // Why NOT `hlt` here: hlt suspends until the NEXT interrupt. If
-        // IRQ1 fires and is fully handled BETWEEN the global_pop() check
-        // above and the hlt instruction, the key lands in the buffer but
-        // hlt sleeps anyway — the key is stuck until the next interrupt
-        // (e.g. the 10ms timer tick) accidentally wakes the loop. With
-        // spin_loop() we always check immediately on the next iteration
-        // so no key is ever missed. hlt makes sense inside a scheduler
-        // (where the idle task can truly sleep), not in a bare shell loop.
-        core::hint::spin_loop();
+        crate::multitask::scheduler::yield_cpu();
     }
 }
 

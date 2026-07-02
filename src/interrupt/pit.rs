@@ -24,10 +24,14 @@ pub fn init() {
 }
 
 fn on_tick() {
-    unsafe {
+    crate::device::serial::print("T");
+    let tick = unsafe {
         let ptr: *mut u64 = &raw mut TICK_COUNT;
         *ptr = (*ptr).wrapping_add(1);
-    }
+        *ptr
+    };
+
+    crate::multitask::scheduler::tick(tick);
 }
 
 pub fn ticks() -> u64 {

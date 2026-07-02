@@ -16,7 +16,13 @@ fn io_wait() {
     outb(0x80, 0);
 }
 
+fn enable_legacy_pic() {
+    outb(0x22, 0x70);
+    outb(0x23, 0x01);
+}
+
 pub fn remap() {
+    enable_legacy_pic();
     let mask1 = inb(PIC1_DATA);
     let mask2 = inb(PIC2_DATA);
 
