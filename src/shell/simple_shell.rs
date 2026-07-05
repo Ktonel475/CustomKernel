@@ -1,5 +1,4 @@
-use crate::interrupt::syscall;
-use crate::ui::terminal::Terminal;
+use crate::{device::serial, ui::terminal::Terminal};
 
 const CMD_BUF_SIZE: usize = 256;
 const PROMPT: &str = "kernel> ";
@@ -291,6 +290,8 @@ impl Shell {
 }
 
 pub fn run_shell() {
+    serial::print("[Shell] started");
+
     let mut term = Terminal::new().expect("framebuffer must exist");
     let mut shell = Shell::new();
 

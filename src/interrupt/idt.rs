@@ -214,27 +214,18 @@ extern "C" fn common_handler(frame: *mut InterruptFrame) {
         15 | 22..=27 | 31 => exception_generic("Reserved", frame),
 
         32..=47 => {
-            crate::device::serial::print("[IRQ ENTER]\n");
-
             let irq = (frame.vector - 32) as u8;
 
             unsafe {
                 let table_ptr = &raw const IRQ_HANDLES;
 
                 if let Some(h) = (*table_ptr)[irq as usize] {
-                    crate::device::serial::print("[CALL HANDLER]\n");
                     h();
-                    crate::device::serial::print("[HANDLER RETURN]\n");
                 } else {
-                    crate::device::serial::print("[NO HANDLER]\n");
+                    crate::device::serial::print("[IDT] NO HANDLER\n");
                 }
             }
-
-            crate::device::serial::print("[SEND EOI]\n");
-
             crate::interrupt::pic::send_eoi(irq);
-
-            crate::device::serial::print("[EOI SENT]\n");
         }
 
         128 => crate::interrupt::syscall::dispatch(frame),
@@ -283,6 +274,12 @@ fn exception_page_fault(frame: &InterruptFrame) -> ! {
         term.print_hex64(cr2);
         term.print("\nError code:      ");
         term.print_hex64(frame.error_code);
+        term.print("\nRIP:             ");
+        term.print_hex64(frame.rip);
+        term.print("\nRSP:             ");
+        term.print_hex64(frame.rsp);
+        term.print("\nRAX:             ");
+        term.print_hex64(frame.rax);
         term.print("\nReason:          ");
         if frame.error_code & 1 == 0 {
             term.print("not-present ");

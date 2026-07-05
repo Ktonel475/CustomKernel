@@ -83,39 +83,33 @@ fn alloc_slot() -> Option<usize> {
     None
 }
 
-const FRAME_WORDS: usize = 22;
+const FRAME_WORDS: usize = 7;
 
-fn setup_inital_stack(stack_top: usize, entry: usize) -> usize {
+fn setup_initial_stack(stack_top: usize, entry: usize) -> usize {
     let frame_start = stack_top - FRAME_WORDS * 8;
-    let frame = frame_start as *mut u64;
+    let frame = frame_start as *mut usize;
 
     unsafe {
-        for i in 0..FRAME_WORDS {
-            frame.add(i).write(0);
-        }
-
+        // r15
         frame.add(0).write(0);
+
+        // r14
         frame.add(1).write(0);
+
+        // r13
         frame.add(2).write(0);
+
+        // r12
         frame.add(3).write(0);
+
+        // rbx
         frame.add(4).write(0);
+
+        // rbp
         frame.add(5).write(0);
-        frame.add(6).write(0);
-        frame.add(7).write(0);
-        frame.add(8).write(0);
-        frame.add(9).write(0);
-        frame.add(10).write(0);
-        frame.add(11).write(0);
-        frame.add(12).write(0);
-        frame.add(13).write(0);
-        frame.add(14).write(0);
-        frame.add(15).write(0);
-        frame.add(16).write(0);
-        frame.add(17).write(entry as u64);
-        frame.add(18).write(KERNEL_CS);
-        frame.add(19).write(INITIAL_RFLAGS);
-        frame.add(20).write(stack_top as u64);
-        frame.add(21).write(KERNEL_SS);
+
+        // return address
+        frame.add(6).write(entry);
     }
 
     frame_start
@@ -137,7 +131,7 @@ pub fn new_kernel_task(name: &[u8], entry: fn()) -> Option<u32> {
 
     let pid = alloc_pid();
 
-    let rsp = setup_inital_stack(stack_virt_top, entry as usize);
+    let rsp = setup_initial_stack(stack_virt_top, entry as usize);
 
     let task = unsafe { &mut (*(&raw mut TASKS))[slot] };
 

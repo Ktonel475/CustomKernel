@@ -9,9 +9,29 @@ static mut TICKS_ON_CURRENT: u64 = 0;
 
 #[unsafe(naked)]
 extern "C" fn switch_to(curr_rsp: *mut usize, next_rsp: *const usize) {
-    naked_asm!("mov [rdi], rsp", "mov rsp, [rsi]", "ret",);
+    naked_asm!(
+        // Save current task context
+        "push rbp",
+        "push rbx",
+        "push r12",
+        "push r13",
+        "push r14",
+        "push r15",
+        // Save resulting stack pointer
+        "mov [rdi], rsp",
+        // Load next task stack pointer
+        "mov rsp, [rsi]",
+        // Restore next task context
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop rbx",
+        "pop rbp",
+        // Jump into the task
+        "ret",
+    );
 }
-
 pub fn schedule() {
     unsafe {
         let _guard = TASK_LOCK.acquire();
