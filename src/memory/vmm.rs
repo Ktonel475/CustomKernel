@@ -1,10 +1,10 @@
 use crate::pmm::{PAGE_SIZE, alloc_page};
-use crate::ui;
 
 pub const PTE_PRESENT: u64 = 1 << 0;
 pub const PTE_WRITABLE: u64 = 1 << 1;
 pub const PTE_USER: u64 = 1 << 2;
 pub const PTE_NO_EXEC: u64 = 1 << 63;
+pub const PTE_NO_CACHE: u64 = 1 << 4;
 
 const ADDR_MASK: u64 = 0x000f_ffff_ffff_f000;
 

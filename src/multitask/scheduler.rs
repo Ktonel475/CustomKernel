@@ -68,6 +68,7 @@ pub fn schedule() {
 }
 
 pub fn tick(current_tick: u64) {
+    crate::device::serial::print("[sched tick]\n");
     unsafe {
         wake_sleeping_tasks(current_tick);
 

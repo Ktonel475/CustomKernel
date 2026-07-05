@@ -79,8 +79,23 @@ pub extern "C" fn _start() -> ! {
     serial::init();
     serial::print("\n[boot] serial ok\n");
 
+    // Memory Module
+
     assert!(BASE_REVISION.is_supported());
     serial::print("[boot] limine revision ok\n");
+
+    vmm::init_vmm();
+    serial::print("[boot] vmm ok\n");
+
+    pmm::init_pmm();
+    serial::print("[boot] pmm ok, free pages: ");
+    serial::print_usize(pmm::get_free_page_count());
+    serial::print("\n");
+
+    heap::kmalloc_init(heap::HEAP_START, 1024 * 1024);
+    serial::print("[boot] heap ok\n");
+
+    // Interrupts Module
 
     idt::init_idt();
     serial::print("[boot] idt ok\n");
@@ -104,22 +119,13 @@ pub extern "C" fn _start() -> ! {
     pit::init();
     serial::print("[boot] pit ok\n");
 
+    crate::device::serial::print("[waiting]\n");
+
     unsafe {
         core::arch::asm!("sti");
-        core::arch::asm!("int 32")
     }
+
     serial::print("[boot] interrupts enabled\n");
-
-    vmm::init_vmm();
-    serial::print("[boot] vmm ok\n");
-
-    pmm::init_pmm();
-    serial::print("[boot] pmm ok, free pages: ");
-    serial::print_usize(pmm::get_free_page_count());
-    serial::print("\n");
-
-    heap::kmalloc_init(heap::HEAP_START, 1024 * 1024);
-    serial::print("[boot] heap ok\n");
 
     task::new_kernel_task(b"task_a", demo_tasks::task_a).expect("failed to create task_a");
     task::new_kernel_task(b"task_b", demo_tasks::task_b).expect("failed to create task_b");

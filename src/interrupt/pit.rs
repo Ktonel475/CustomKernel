@@ -24,7 +24,7 @@ pub fn init() {
 }
 
 fn on_tick() {
-    crate::device::serial::print("T");
+    crate::serial::print("T");
     let tick = unsafe {
         let ptr: *mut u64 = &raw mut TICK_COUNT;
         *ptr = (*ptr).wrapping_add(1);

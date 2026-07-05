@@ -214,16 +214,27 @@ extern "C" fn common_handler(frame: *mut InterruptFrame) {
         15 | 22..=27 | 31 => exception_generic("Reserved", frame),
 
         32..=47 => {
-            crate::device::serial::print("I");
+            crate::device::serial::print("[IRQ ENTER]\n");
+
             let irq = (frame.vector - 32) as u8;
 
             unsafe {
-                let table_ptr: *const [Option<IrqHandlerFn>; IRQ_COUNT] = &raw const IRQ_HANDLES;
+                let table_ptr = &raw const IRQ_HANDLES;
+
                 if let Some(h) = (*table_ptr)[irq as usize] {
+                    crate::device::serial::print("[CALL HANDLER]\n");
                     h();
+                    crate::device::serial::print("[HANDLER RETURN]\n");
+                } else {
+                    crate::device::serial::print("[NO HANDLER]\n");
                 }
             }
+
+            crate::device::serial::print("[SEND EOI]\n");
+
             crate::interrupt::pic::send_eoi(irq);
+
+            crate::device::serial::print("[EOI SENT]\n");
         }
 
         128 => crate::interrupt::syscall::dispatch(frame),
